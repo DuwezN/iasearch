@@ -1,0 +1,23 @@
+services:
+  elasticsearch:
+    image: elasticsearch:9.3.2
+    environment:
+      discovery.type: single-node
+      http.cors.enabled: "true"
+      http.cors.allow-origin: '"*"'
+      xpack.security.enabled: "false"
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+
+volumes:
+  elasticsearch-data:
+  ollama-data:
