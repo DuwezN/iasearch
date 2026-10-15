@@ -1,10 +1,10 @@
 [project]
 name = "index-data"
 version = "0.1.0"
-description = "Add your description here"
+description = "Pipeline d'indexation, embeddings et clustering du projet IA Search"
 readme = "README.md"
 authors = [
-    { name = "Nicolas Duwez", email = "nic0-vals@live.fr" }
+    { name = "Nicolas Duwez" }
 ]
 requires-python = ">=3.12"
 dependencies = [
