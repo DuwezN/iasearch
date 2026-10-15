@@ -95,13 +95,20 @@ def search(
     # Nos index Elasticsearch sont data_1-data_10
     data_index = f"data_{cluster_id + 1}"
 
-    # 4. Rechercher dans le cluster sélectionné
+    # 4. Recherche hybride dans le cluster sélectionné :
+    # BM25 sur line + KNN sur embedding, scores additionnés par Elasticsearch
     results = es.search(
         index=data_index,
         query={
             "match": {
                 "line": q
             }
+        },
+        knn={
+            "field": "embedding",
+            "query_vector": query_embedding,
+            "k": size,
+            "num_candidates": 100,
         },
         size=size,
     )
