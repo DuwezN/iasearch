@@ -18,25 +18,55 @@ Lorsque la requête ne correspond pas suffisamment aux données disponibles, l'a
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    subgraph Indexation
-        A["Données pCloud"] --> B["qwen3-embedding:0.6b"]
-        B --> C["KMeans - 10 clusters"]
-        C --> D["Elasticsearch<br/>data_1 ... data_10"]
-        C --> E["cluster_centers"]
-    end
+```text
+INDEXATION
 
-    subgraph Recherche
-        U["Utilisateur"] --> F["React / Nginx"]
-        F --> G["FastAPI"]
-        G --> H["qwen3-embedding:0.6b"]
-        H --> I["KNN sur cluster_centers"]
-        I --> J["Recherche hybride<br/>BM25 + KNN dans data_X"]
-        J --> K["qwen3.5:0.8b<br/>Rerank yes/no + logprobs"]
-        K --> L["Seuil 0.4<br/>+ fallback Top 3"]
-        L --> F
-    end
+Données pCloud
+      |
+      v
+qwen3-embedding:0.6b
+      |
+      v
+KMeans - 10 clusters
+      |
+      +------------------------+
+      |                        |
+      v                        v
+Elasticsearch             cluster_centers
+(data_1 ... data_10)
+
+
+RECHERCHE
+
+Utilisateur
+    |
+    v
+React / Nginx
+    |
+    v
+FastAPI
+    |
+    v
+qwen3-embedding:0.6b
+    |
+    v
+KNN sur cluster_centers
+    |
+    v
+Recherche hybride BM25 + KNN dans data_X
+    |
+    v
+qwen3.5:0.8b - rerank yes/no + logprobs
+    |
+    v
+Seuil 0.4
+    |
+    +--> résultats pertinents
+    |
+    +--> aucun résultat pertinent : fallback Top 3
+    |
+    v
+React / Nginx
 ```
 
 L'ensemble des services applicatifs est exécuté localement avec Docker Compose.
