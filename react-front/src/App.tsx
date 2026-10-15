@@ -88,72 +88,93 @@ function App() {
       <h1>IA Search</h1>
 
       <form className="search-form" onSubmit={handleSubmit}>
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Ex. travaux de rénovation"
-          aria-label="Texte de recherche"
-        />
+        <div className="search-field">
+          <svg className="search-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Ex. travaux de rénovation"
+            aria-label="Texte de recherche"
+          />
+        </div>
         <button type="submit" disabled={loading || !query.trim()}>
           {loading ? 'Recherche…' : 'Search'}
         </button>
       </form>
 
-      {loading && <p className="status">Recherche en cours…</p>}
+      {loading && (
+        <p className="status loading">
+          <span className="spinner" aria-hidden="true" />
+          Recherche en cours…
+        </p>
+      )}
 
       {error && <p className="status error">{error}</p>}
 
       {data && (
         <section className="results">
           <dl className="meta">
-            <div>
+            <div className="meta-card meta-query">
               <dt>Requête</dt>
               <dd>{data.query}</dd>
             </div>
-            <div>
+            <div className="meta-card">
               <dt>Cluster</dt>
               <dd>{data.cluster_id}</dd>
             </div>
-            <div>
+            <div className="meta-card">
               <dt>Index</dt>
               <dd>{data.data_index}</dd>
             </div>
-            <div>
+            <div className="meta-card">
               <dt>Résultats</dt>
               <dd>{data.results.length}</dd>
             </div>
           </dl>
 
           {data.fallback && (
-            <p className="fallback-notice" role="status">
-              Cette recherche ne correspond pas suffisamment aux données
-              disponibles. Voici néanmoins les résultats les plus proches :
-            </p>
+            <div className="fallback-notice" role="status">
+              <svg className="fallback-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3 2 21h20L12 3Z" />
+                <path d="M12 10v5" />
+                <path d="M12 18h.01" />
+              </svg>
+              <p>
+                Cette recherche ne correspond pas suffisamment aux données
+                disponibles. Voici néanmoins les résultats les plus proches :
+              </p>
+            </div>
           )}
 
           {data.results.length === 0 ? (
-            <p className="status">
+            <p className="status empty">
               Aucun résultat pertinent trouvé pour cette requête.
             </p>
           ) : (
             <ol className="result-list">
-              {data.results.map((hit) => {
+              {data.results.map((hit, index) => {
                 const { label, level } = relevance(hit.rerank_score)
                 return (
-                  <li key={hit._id}>
-                    <div className="scores">
+                  <li key={hit._id} className={`result-card ${level}`}>
+                    <div className="result-header">
+                      <span className="rank">#{index + 1}</span>
+                      <span className={`relevance ${level}`}>{label}</span>
                       <span className="score" title="Score de pertinence (rerank)">
+                        <span className="score-label">Rerank</span>
                         {hit.rerank_score.toFixed(3)}
                       </span>
-                      <span className={`relevance ${level}`}>{label}</span>
                     </div>
-                    <div className="result-body">
-                      <p>{hit._source.line}</p>
-                      <span className="es-score">
-                        Score Elasticsearch : {hit._score.toFixed(3)}
-                      </span>
+                    <p className="result-text">{hit._source.line}</p>
+                    <div className="relevance-bar" aria-hidden="true">
+                      <span style={{ width: `${Math.min(hit.rerank_score, 1) * 100}%` }} />
                     </div>
+                    <span className="es-score">
+                      Score Elasticsearch : {hit._score.toFixed(3)}
+                    </span>
                   </li>
                 )
               })}
