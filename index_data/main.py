@@ -12,10 +12,15 @@ PCLOUD_API_URL = (
     "&forcedownload=1"
 )
 
-OLLAMA_API_URL = "http://localhost:11434/api/embeddings"
+OLLAMA_API_URL = "http://localhost:11434/api/embed"
 MODEL_NAME = "qwen3-embedding:0.6b"
 
+ELASTICSEARCH_URL = "http://localhost:9200"
+
 NUM_CLUSTERS = 10
+EMBEDDING_DIM = 1024
+EMBEDDING_BATCH_SIZE = 32
+ELASTICSEARCH_BULK_BATCH_SIZE = 100
 
 
 def get_data_from_cloud():
@@ -55,8 +60,7 @@ def get_data_from_cloud():
 
             lines = [
                 line.strip()
-                for line
-                in file_content_response.text.splitlines()
+                for line in file_content_response.text.splitlines()
                 if line.strip()
             ]
 
@@ -66,19 +70,12 @@ def get_data_from_cloud():
 
             return lines
 
-        else:
-            print(
-                "Error: 'path' or 'hosts' key not found "
-                "in the JSON response, or hosts list is empty."
-            )
-            print(
-                json.dumps(
-                    json_data,
-                    indent=2
-                )
-            )
-
-            return []
+        print(
+            "Error: 'path' or 'hosts' key not found "
+            "in the JSON response, or hosts list is empty."
+        )
+        print(json.dumps(json_data, indent=2))
+        return []
 
     except requests.exceptions.RequestException as e:
         print(
@@ -104,7 +101,6 @@ def get_data_embeddings(lines):
         "Calcul des embeddings avec Ollama..."
     )
 
-    # Vérifie que Ollama répond
     try:
         response = requests.get(
             "http://localhost:11434/api/tags",
@@ -122,11 +118,20 @@ def get_data_embeddings(lines):
 
     embeddings = []
 
-    for i, line in enumerate(lines):
+    for batch_start in range(
+        0,
+        len(lines),
+        EMBEDDING_BATCH_SIZE
+    ):
+        batch = lines[
+            batch_start:
+            batch_start + EMBEDDING_BATCH_SIZE
+        ]
+
         try:
             payload = {
                 "model": MODEL_NAME,
-                "prompt": line
+                "input": batch
             }
 
             response = requests.post(
@@ -137,32 +142,42 @@ def get_data_embeddings(lines):
 
             response.raise_for_status()
 
-            data = response.json()
-
-            embeddings.append(
-                data["embedding"]
+            batch_embeddings = (
+                response.json()["embeddings"]
             )
 
-            if (i + 1) % 10 == 0:
-                print(
-                    f"Processed "
-                    f"{i + 1}/{len(lines)} "
-                    f"lines..."
+            if len(batch_embeddings) != len(batch):
+                raise ValueError(
+                    "Embedding count does not match batch size"
                 )
+
+            embeddings.extend(batch_embeddings)
 
         except requests.exceptions.RequestException as e:
             print(
-                f"Error processing "
-                f"line {i + 1}: {e}"
+                f"Error processing lines "
+                f"{batch_start + 1}-"
+                f"{batch_start + len(batch)}: {e}"
+            )
+            embeddings.extend(
+                [[0.0] * EMBEDDING_DIM for _ in batch]
             )
 
-        except KeyError:
+        except (KeyError, TypeError, ValueError) as e:
             print(
-                f"Error processing line "
-                f"{i + 1}: "
-                f"'embedding' not found "
-                f"in Ollama response."
+                f"Error processing lines "
+                f"{batch_start + 1}-"
+                f"{batch_start + len(batch)}: {e}"
             )
+            embeddings.extend(
+                [[0.0] * EMBEDDING_DIM for _ in batch]
+            )
+
+        print(
+            f"Processed "
+            f"{batch_start + len(batch)}/{len(lines)} "
+            f"lines..."
+        )
 
     if not embeddings:
         print(
@@ -171,7 +186,8 @@ def get_data_embeddings(lines):
         return None
 
     embeddings_array = np.array(
-        embeddings
+        embeddings,
+        dtype=np.float32
     )
 
     print(
@@ -179,19 +195,6 @@ def get_data_embeddings(lines):
         f"Shape: "
         f"{embeddings_array.shape}"
     )
-
-    print(
-        "\nFirst 5 embeddings "
-        "(first 10 dimensions each):"
-    )
-
-    for i, embedding in enumerate(
-        embeddings_array[:5]
-    ):
-        print(
-            f"Line {i + 1}: "
-            f"{embedding[:10].tolist()}..."
-        )
 
     return embeddings_array
 
@@ -214,35 +217,312 @@ def cluster_data(
     clusters = kmeans.fit_predict(
         line_embeddings
     )
+    labels = kmeans.labels_
 
     cluster_centers = (
         kmeans.cluster_centers_
     )
 
+    cluster_to_lines = {
+        i: []
+        for i in range(NUM_CLUSTERS)
+    }
+
+    for i, cluster_id in enumerate(
+        clusters
+    ):
+        cluster_to_lines[
+            cluster_id
+        ].append(lines[i])
+
     print(
         "\nRépartition des clusters :"
     )
 
-    for cluster_id in range(
-        NUM_CLUSTERS
+    for cluster_id, cluster_lines in (
+        cluster_to_lines.items()
     ):
-        indices = np.where(
-            clusters == cluster_id
-        )[0]
-
         print(
             f"\nCluster {cluster_id}: "
-            f"{len(indices)} lignes"
+            f"{len(cluster_lines)} lignes"
         )
 
-        for index in indices[:3]:
+        for line in cluster_lines[:3]:
             print(
-                f" - {lines[index]}"
+                f" - {line}"
             )
 
     return (
-        clusters,
+        cluster_to_lines,
+        cluster_centers,
+        labels
+    )
+
+
+def index_clusters_in_elasticsearch(
+    lines,
+    line_embeddings,
+    cluster_to_lines,
+    labels
+):
+    print(
+        "\nVérification de Elasticsearch..."
+    )
+
+    try:
+        response = requests.get(
+            f"{ELASTICSEARCH_URL}/_cat/health?h=status",
+            timeout=5
+        )
+        response.raise_for_status()
+
+        print(
+            f"Elasticsearch OK : "
+            f"{response.text.strip()}"
+        )
+
+    except requests.exceptions.RequestException as e:
+        print(
+            f"Elasticsearch inaccessible : {e}"
+        )
+        return
+
+    print(
+        f"\nIndexing {len(lines)} lines "
+        f"into Elasticsearch..."
+    )
+
+    for cluster_id in cluster_to_lines:
+        index_name = (
+            f"data_{cluster_id + 1}"
+        )
+
+        mapping = {
+            "mappings": {
+                "properties": {
+                    "embedding": {
+                        "type": "dense_vector",
+                        "dims": EMBEDDING_DIM,
+                        "index": True,
+                        "similarity": "cosine"
+                    },
+                    "line": {
+                        "type": "text",
+                        "fields": {
+                            "keyword": {
+                                "type": "keyword",
+                                "ignore_above": 256
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        try:
+            response = requests.put(
+                f"{ELASTICSEARCH_URL}/{index_name}",
+                json=mapping,
+                timeout=10
+            )
+
+            if response.status_code not in (
+                200,
+                400
+            ):
+                response.raise_for_status()
+
+        except requests.exceptions.RequestException as e:
+            print(
+                f"Error creating index "
+                f"{index_name}: {e}"
+            )
+
+    for batch_start in range(
+        0,
+        len(lines),
+        ELASTICSEARCH_BULK_BATCH_SIZE
+    ):
+        batch_end = min(
+            batch_start + ELASTICSEARCH_BULK_BATCH_SIZE,
+            len(lines)
+        )
+        bulk_lines = []
+
+        for i in range(batch_start, batch_end):
+            cluster_id = int(labels[i])
+            index_name = f"data_{cluster_id + 1}"
+            doc = {
+                "embedding": line_embeddings[i].tolist(),
+                "line": lines[i]
+            }
+
+            bulk_lines.append(
+                json.dumps({
+                    "index": {
+                        "_index": index_name,
+                        "_id": i
+                    }
+                })
+            )
+            bulk_lines.append(json.dumps(doc))
+
+        try:
+            response = requests.post(
+                f"{ELASTICSEARCH_URL}/_bulk",
+                data="\n".join(bulk_lines) + "\n",
+                headers={
+                    "Content-Type": "application/x-ndjson"
+                },
+                timeout=60
+            )
+            response.raise_for_status()
+
+            bulk_response = response.json()
+            for offset, item in enumerate(
+                bulk_response.get("items", [])
+            ):
+                index_result = item.get("index", {})
+                if "error" in index_result:
+                    print(
+                        f"Error indexing line "
+                        f"{batch_start + offset}: "
+                        f"{index_result['error']}"
+                    )
+
+        except requests.exceptions.RequestException as e:
+            print(
+                f"Error indexing lines "
+                f"{batch_start}-{batch_end - 1}: {e}"
+            )
+        except (ValueError, TypeError) as e:
+            print(
+                f"Invalid bulk response for lines "
+                f"{batch_start}-{batch_end - 1}: {e}"
+            )
+
+        print(
+            f"Indexed "
+            f"{batch_end}/{len(lines)} lines..."
+        )
+
+    print(
+        "\nFinished indexing lines."
+    )
+
+    for cluster_id in cluster_to_lines:
+        index_name = (
+            f"data_{cluster_id + 1}"
+        )
+
+        try:
+            response = requests.get(
+                f"{ELASTICSEARCH_URL}/"
+                f"{index_name}/_count",
+                timeout=5
+            )
+
+            response.raise_for_status()
+
+            count = (
+                response
+                .json()
+                .get("count", 0)
+            )
+
+            print(
+                f"{index_name}: "
+                f"{count} documents"
+            )
+
+        except requests.exceptions.RequestException:
+            pass
+
+
+def index_data_clusters(
+    cluster_centers
+):
+    INDEX_NAME = "cluster_centers"
+
+    print(
+        f"\nIndexing "
+        f"{len(cluster_centers)} "
+        f"cluster centers..."
+    )
+
+    mapping = {
+        "mappings": {
+            "properties": {
+                "center": {
+                    "type": "dense_vector",
+                    "dims": EMBEDDING_DIM,
+                    "index": True,
+                    "similarity": "cosine"
+                },
+                "cluster_id": {
+                    "type": "long"
+                }
+            }
+        }
+    }
+
+    try:
+        response = requests.put(
+            f"{ELASTICSEARCH_URL}/"
+            f"{INDEX_NAME}",
+            json=mapping,
+            timeout=10
+        )
+
+        if response.status_code not in (
+            200,
+            400
+        ):
+            response.raise_for_status()
+
+    except requests.exceptions.RequestException as e:
+        print(
+            f"Error creating index "
+            f"{INDEX_NAME}: {e}"
+        )
+        return
+
+    for cluster_id, center in enumerate(
         cluster_centers
+    ):
+        doc = {
+            "cluster_id": cluster_id,
+            "center": (
+                center.tolist()
+            )
+        }
+
+        try:
+            response = requests.post(
+                f"{ELASTICSEARCH_URL}/"
+                f"{INDEX_NAME}/_doc/"
+                f"{cluster_id}",
+                json=doc,
+                timeout=10
+            )
+
+            response.raise_for_status()
+
+            print(
+                f"Indexed cluster center "
+                f"{cluster_id}"
+            )
+
+        except requests.exceptions.RequestException as e:
+            print(
+                f"Error indexing cluster "
+                f"center {cluster_id}: {e}"
+            )
+
+    print(
+        f"\nFinished indexing "
+        f"cluster centers into "
+        f"{INDEX_NAME}."
     )
 
 
@@ -256,7 +536,9 @@ def main():
         return
 
     line_embeddings = (
-        get_data_embeddings(lines)
+        get_data_embeddings(
+            lines
+        )
     )
 
     if line_embeddings is None:
@@ -266,11 +548,24 @@ def main():
         )
         return
 
-    clusters, cluster_centers = (
-        cluster_data(
-            line_embeddings,
-            lines
-        )
+    (
+        cluster_to_lines,
+        cluster_centers,
+        labels
+    ) = cluster_data(
+        line_embeddings,
+        lines
+    )
+
+    index_clusters_in_elasticsearch(
+        lines,
+        line_embeddings,
+        cluster_to_lines,
+        labels
+    )
+
+    index_data_clusters(
+        cluster_centers
     )
 
     print(
@@ -290,13 +585,6 @@ def main():
     print(
         f"Nombre de clusters : "
         f"{len(cluster_centers)}"
-    )
-
-    return (
-        lines,
-        line_embeddings,
-        clusters,
-        cluster_centers
     )
 
 

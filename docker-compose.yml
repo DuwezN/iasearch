@@ -17,6 +17,20 @@ services:
       - "127.0.0.1:11434:11434"
     volumes:
       - ollama-data:/root/.ollama
+    gpus: all
+
+  backend:
+    build: ./fastapi-backend
+    container_name: fastapi-backend
+    ports:
+      - "8000:8000"
+      - "5678:5678"
+    environment:
+      - ELASTICSEARCH_HOST=http://elasticsearch:9200
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      - elasticsearch
+      - ollama
 
 volumes:
   elasticsearch-data:
