@@ -1,10 +1,10 @@
 [project]
 name = "fastapi-backend"
 version = "0.1.0"
-description = "Add your description here"
+description = "Backend FastAPI du projet pédagogique IA Search"
 readme = "README.md"
 authors = [
-    { name = "Nicolas Debeissat", email = "ndebeiss@gmail.com" }
+    { name = "Nicolas Duwez" }
 ]
 requires-python = ">=3.13"
 dependencies = [
