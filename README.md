@@ -4,6 +4,18 @@
 
 IA Search est un moteur de recherche local qui combine **embeddings**, **clustering**, **recherche hybride Elasticsearch** et **reranking par LLM**. L'objectif du projet est de construire une chaîne de recherche IA complète, de l'indexation des données jusqu'à l'affichage des résultats dans une interface web.
 
+## Aperçu
+
+### Recherche pertinente
+
+![Recherche pertinente - travaux de rénovation](docs/images/search-relevant.png)
+
+### Requête hors sujet et fallback
+
+Lorsque la requête ne correspond pas suffisamment aux données disponibles, l'application le signale et affiche malgré tout les trois candidats les plus proches.
+
+![Fallback - recette de gâteau au chocolat](docs/images/search-fallback.png)
+
 ## Architecture
 
 ```mermaid
@@ -26,6 +38,10 @@ flowchart LR
         L --> F
     end
 ```
+
+L'ensemble des services applicatifs est exécuté localement avec Docker Compose.
+
+![Stack Docker IA Search](docs/images/docker-stack.png)
 
 ## Stack technique
 
@@ -117,6 +133,10 @@ La réponse principale contient notamment :
 
 Chaque résultat conserve le `_score` Elasticsearch et ajoute un `rerank_score` utilisé pour le classement final.
 
+### Swagger
+
+![Documentation Swagger de l'API](docs/images/swagger-api.png)
+
 ## Installation et lancement
 
 ### Prérequis
@@ -178,6 +198,8 @@ La première requête peut être plus lente, le temps qu'Ollama charge le modèl
 ```text
 iasearch/
 ├── docker-compose.yml
+├── docs/
+│   └── images/
 ├── fastapi-backend/
 │   ├── Dockerfile
 │   ├── main.py
