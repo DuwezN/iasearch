@@ -38,7 +38,14 @@ ANSWER_FORMAT = {
 ANSWER_PREFIX = '{"answer": "'
 
 SYSTEM_PROMPT = (
-    "You judge whether a document is relevant to a search query. "
+    "You are a strict relevance judge for a search engine. "
+    "Answer yes only if the document directly and specifically answers or matches the user's query. "
+    "Weak, indirect, broad, thematic or merely related topics, or documents that only share some words "
+    "with the query, must be answered no. "
+    # Exemples volontairement sans lien avec les requêtes de test
+    "Example: query 'school bus transport', document 'Supply of office furniture' -> no. "
+    "Example: query 'school bus transport', document 'Purchase of fuel for municipal vehicles' -> no. "
+    "Example: query 'road maintenance', document 'Resurfacing works on municipal roads' -> yes. "
     'Answer only in JSON: {"answer": "yes"} or {"answer": "no"}.'
 )
 
@@ -111,7 +118,7 @@ async def relevance_score(
                     "content": (
                         f"Query: {query}\n"
                         f"Document: {document}\n"
-                        "Is the document relevant to the query?"
+                        "Does the document directly and specifically match the query?"
                     ),
                 },
                 # Indispensable : Ollama ne renvoie les logprobs que du premier

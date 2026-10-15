@@ -42,6 +42,11 @@ CLUSTERS_INDEX = "cluster_centers"
 # Seuil de pertinence : on ne garde que les documents avec rerank_score >= 0.4
 RERANK_THRESHOLD = 0.4
 
+# Requête hors sujet (aucun document au-dessus du seuil) :
+# on renvoie quand même les meilleurs résultats du rerank
+FALLBACK_SIZE = 3
+FALLBACK_MESSAGE = "Cette recherche ne correspond pas suffisamment aux données disponibles."
+
 es = Elasticsearch(ELASTICSEARCH_HOST)
 
 def get_embedding(text: str) -> list[float]:
@@ -57,6 +62,30 @@ def get_embedding(text: str) -> list[float]:
     response.raise_for_status()
 
     return response.json()["embedding"]
+
+
+def apply_relevance_threshold(reranked_hits: list[dict[str, Any]]) -> dict[str, Any]:
+    """Seuil de pertinence, avec repli sur les meilleurs résultats si aucun ne le passe.
+
+    reranked_hits est déjà trié par rerank_score décroissant.
+    """
+    relevant_hits = [
+        hit for hit in reranked_hits
+        if hit["rerank_score"] >= RERANK_THRESHOLD
+    ]
+
+    if relevant_hits:
+        return {
+            "fallback": False,
+            "message": None,
+            "results": relevant_hits,
+        }
+
+    return {
+        "fallback": True,
+        "message": FALLBACK_MESSAGE,
+        "results": reranked_hits[:FALLBACK_SIZE],
+    }
 
 
 @app.get("/")
@@ -130,17 +159,12 @@ async def search(
     # et trie par rerank_score décroissant
     reranked_hits = await rerank(q, hits)
 
-    # 6. Seuil de pertinence
-    reranked_hits = [
-        hit for hit in reranked_hits
-        if hit["rerank_score"] >= RERANK_THRESHOLD
-    ]
-
+    # 6. Seuil de pertinence (repli sur les 3 meilleurs si hors sujet)
     return {
         "query": q,
         "cluster_id": cluster_id,
         "data_index": data_index,
-        "results": reranked_hits,
+        **apply_relevance_threshold(reranked_hits),
     }
 
 
@@ -181,15 +205,10 @@ async def search_in_cluster(
     # 4. Même rerank que /search
     reranked_hits = await rerank(q, hits)
 
-    # 5. Même seuil de pertinence que /search
-    reranked_hits = [
-        hit for hit in reranked_hits
-        if hit["rerank_score"] >= RERANK_THRESHOLD
-    ]
-
+    # 5. Même seuil de pertinence que /search (repli sur les 3 meilleurs si hors sujet)
     return {
         "query": q,
         "cluster_id": cluster_id,
         "data_index": data_index,
-        "results": reranked_hits,
+        **apply_relevance_threshold(reranked_hits),
     }
