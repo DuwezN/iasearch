@@ -21,20 +21,20 @@ Lorsque la requête ne correspond pas suffisamment aux données disponibles, l'a
 ```mermaid
 flowchart LR
     subgraph Indexation
-        A[Données pCloud] --> B[qwen3-embedding:0.6b]
-        B --> C[KMeans - 10 clusters]
-        C --> D[(Elasticsearch\ndata_1 ... data_10)]
-        C --> E[(cluster_centers)]
+        A["Données pCloud"] --> B["qwen3-embedding:0.6b"]
+        B --> C["KMeans - 10 clusters"]
+        C --> D["Elasticsearch<br/>data_1 ... data_10"]
+        C --> E["cluster_centers"]
     end
 
     subgraph Recherche
-        U[Utilisateur] --> F[React / Nginx]
-        F --> G[FastAPI]
-        G --> H[qwen3-embedding:0.6b]
-        H --> I[KNN sur cluster_centers]
-        I --> J[Recherche hybride\nBM25 + KNN dans data_X]
-        J --> K[qwen3.5:0.8b\nRerank yes/no + logprobs]
-        K --> L[Seuil 0.4\n+ fallback Top 3]
+        U["Utilisateur"] --> F["React / Nginx"]
+        F --> G["FastAPI"]
+        G --> H["qwen3-embedding:0.6b"]
+        H --> I["KNN sur cluster_centers"]
+        I --> J["Recherche hybride<br/>BM25 + KNN dans data_X"]
+        J --> K["qwen3.5:0.8b<br/>Rerank yes/no + logprobs"]
+        K --> L["Seuil 0.4<br/>+ fallback Top 3"]
         L --> F
     end
 ```
