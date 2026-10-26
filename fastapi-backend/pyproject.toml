@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "Nicolas Duwez" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "debugpy>=1.8.22",
     "elasticsearch>=9.5.1",
